@@ -1,0 +1,22 @@
+# 👁 EyePatch
+
+Modern Windows hardware-breakpoint and debugger research tool built with C# and WPF.
+
+## ⚠ Disclaimer
+
+This project is provided strictly for educational and research purposes only.
+
+The author is not responsible for misuse, unauthorized access, or illegal activity involving this software.
+
+## 💻 Platform
+
+* Windows 10 / 11
+* x64 Processes
+* Administrator privileges recommended
+
+
+
+
+What is EyePatch?
+EyePatch is a C# live process monitoring tool designed for research and educational purposes. It supports hardware breakpoint attachment and AMSI hooking for demonstration and analysis.
+This project is intended purely as a proof of concept and is not developed or distributed for malicious or unauthorized activities.
