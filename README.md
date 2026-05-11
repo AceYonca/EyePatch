@@ -10,8 +10,8 @@ The author is not responsible for misuse, unauthorized access, or illegal activi
 
 ## 💻 Platform
 
-- Windows 10 / 11  
-- x64 Processes  
+- Windows 11 (tested only)
+- x64 & x86 Processes  
 - Administrator privileges recommended  
 
 ---
