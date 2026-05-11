@@ -32,6 +32,84 @@ namespace EyePatch
 
 
 
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern bool Module32First(IntPtr hSnapshot, ref MODULEENTRY32 lpme);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern bool Module32Next(IntPtr hSnapshot, ref MODULEENTRY32 lpme);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        private const uint TH32CS_SNAPMODULE = 0x00000008;
+        private const uint TH32CS_SNAPMODULE32 = 0x00000010;
+        private static readonly IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        private struct MODULEENTRY32
+        {
+            public uint dwSize;
+            public uint th32ModuleID;
+            public uint th32ProcessID;
+            public uint GlblcntUsage;
+            public uint ProccntUsage;
+            public IntPtr modBaseAddr;
+            public uint modBaseSize;
+            public IntPtr hModule;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+            public string szModule;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string szExePath;
+        }
+
+
+
+
+        private static bool CanCurrentProcessHookTarget(string targetArch, out string reason)
+
+
+
+
+
+
+        {
+            bool currentIs64 = Environment.Is64BitProcess;
+
+            if (currentIs64)
+            {
+                // x64 controller can hook both native x64 and WOW64 x86
+                if (targetArch == "x64" || targetArch == "x86")
+                {
+                    reason = null;
+                    return true;
+                }
+            }
+            else
+            {
+                // x86 controller should only hook x86 targets
+                if (targetArch == "x86")
+                {
+                    reason = null;
+                    return true;
+                }
+
+                reason =
+                    "This EyePatch build is 32-bit and cannot hook a 64-bit process. " +
+                    "Build EyePatch as x64 to support x64 targets.";
+                return false;
+            }
+
+            reason = "Unknown or unsupported target architecture: " + targetArch;
+            return false;
+        }
+
+
         public bool IsHooked { get; set; }
 
         public string HookStatus
@@ -92,10 +170,12 @@ namespace EyePatch
                     {
                         try
                         {
-                            IntPtr AmsiBase = GetModuleBaseFromProcess(process, "Amsi.dll");
+                            string arch = GetProcessArchitecture(process);
 
+                            IntPtr AmsiBase = GetModuleBaseFromProcess(process, "Amsi.dll");
                             if (AmsiBase == IntPtr.Zero)
                                 continue;
+
 
                             bool Hooked = false;
 
@@ -105,16 +185,17 @@ namespace EyePatch
                             found.Add(new ProcessViewModel
                             {
                                 Id = process.Id,
-                                ProcessName = process.ProcessName,
+                                ProcessName = arch == "x86" ? process.ProcessName + " (x86)": process.ProcessName,
                                 MemoryUsage = (process.WorkingSet64 / 1024 / 1024) + " MB",
                                 IsHooked = Hooked,
-                                Architecture = GetProcessArchitecture(process),
-                                AmsiBaseAddress = "0x" + AmsiBase.ToInt64().ToString("X")
+                                Architecture = arch,
+                                AmsiBaseAddress = AmsiBase == IntPtr.Zero
+                                    ? "Not found"
+                                    : "0x" + AmsiBase.ToInt64().ToString("X")
                             });
                         }
                         catch
                         {
-                            // Ignore protected/system/incompatible processes
                         }
                         finally
                         {
@@ -141,21 +222,38 @@ namespace EyePatch
 
         private static IntPtr GetModuleBaseFromProcess(Process process, string moduleName)
         {
+            IntPtr snapshot = CreateToolhelp32Snapshot(
+                TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+                (uint)process.Id);
+
+            if (snapshot == IntPtr.Zero || snapshot == INVALID_HANDLE_VALUE)
+                return IntPtr.Zero;
+
             try
             {
-                foreach (ProcessModule module in process.Modules)
+                MODULEENTRY32 module = new MODULEENTRY32();
+                module.dwSize = (uint)Marshal.SizeOf(typeof(MODULEENTRY32));
+
+                if (!Module32First(snapshot, ref module))
+                    return IntPtr.Zero;
+
+                do
                 {
-                    if (module.ModuleName.Equals(moduleName, StringComparison.OrdinalIgnoreCase))
-                        return module.BaseAddress;
+                    if (module.szModule.Equals(moduleName, StringComparison.OrdinalIgnoreCase))
+                        return module.modBaseAddr;
                 }
+                while (Module32Next(snapshot, ref module));
             }
             catch
             {
             }
+            finally
+            {
+                CloseHandle(snapshot);
+            }
 
             return IntPtr.Zero;
         }
-
         private static IntPtr GetRemoteModuleBase(int pid, string moduleName)
         {
             try
@@ -171,14 +269,14 @@ namespace EyePatch
             }
         }
 
-        private long GetExportOffset(string moduleName, string exportName)
+        private long GetExportOffset(string modulePath, string exportName)
         {
-            string cacheKey = moduleName.ToLowerInvariant() + "!" + exportName;
+            string cacheKey = modulePath.ToLowerInvariant() + "!" + exportName;
 
             if (_exportOffsetCache.ContainsKey(cacheKey))
                 return _exportOffsetCache[cacheKey];
 
-            IntPtr localModule = LoadLibrary(moduleName);
+            IntPtr localModule = LoadLibrary(modulePath);
 
             if (localModule == IntPtr.Zero)
                 return 0;
@@ -191,7 +289,6 @@ namespace EyePatch
             long offset = localExport.ToInt64() - localModule.ToInt64();
 
             _exportOffsetCache[cacheKey] = offset;
-
             return offset;
         }
 
@@ -272,9 +369,9 @@ namespace EyePatch
             Log("Live refresh disabled.");
         }
 
-   
 
-   
+
+
 
         private void ProcessGrid_MouseDoubleClick(
             object sender,
@@ -285,11 +382,11 @@ namespace EyePatch
             if (selected == null)
                 return;
 
-            IntPtr AmsiBase = GetRemoteModuleBase(selected.Id, "amsi.dll");
+            IntPtr AmsiBase = GetRemoteModuleBase(selected.Id, "Amsi.dll");
 
             IntPtr AmsiScanBuffer = GetRemoteExportAddress(
                 selected.Id,
-                "amsi.dll",
+                "Amsi.dll",
                 "AmsiScanBuffer");
 
             Log("Process: " + selected.ProcessName);
@@ -384,7 +481,21 @@ namespace EyePatch
                 return;
             }
 
+            string reason;
+            if (!CanCurrentProcessHookTarget(selected.Architecture, out reason))
+            {
+                Log("Patch blocked: " + reason);
+                MessageBox.Show(reason, "Unsupported architecture");
+                return;
+            }
+
             int pid = selected.Id;
+
+            Log(
+                "Hook requested. Current process architecture=" +
+                (Environment.Is64BitProcess ? "x64" : "x86") +
+                ", target architecture=" + selected.Architecture +
+                ", PID=" + pid);
 
             bool success = await Task.Run(() =>
             {
@@ -404,6 +515,7 @@ namespace EyePatch
 
             Log("Marked Hooked: " + selected.ProcessName + " PID " + pid);
         }
+
     }
 
     public class ProcessViewModel

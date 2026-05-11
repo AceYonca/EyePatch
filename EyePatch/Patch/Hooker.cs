@@ -35,9 +35,6 @@ internal class Hooker //  https://github.com/AceYonca
     {
         try
         {
-            if (!_hookedPids.Contains(pid))
-                return true;
-
             HardwareBreakpoint.Stop();
             _hookedPids.Remove(pid);
 
