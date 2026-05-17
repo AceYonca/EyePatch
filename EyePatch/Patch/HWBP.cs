@@ -1164,7 +1164,6 @@ namespace EyePatch.Patch
             context.Rax = 0;
             context.Dr6 = 0;
 
-            DisableBreakpoint64(ref context, 0);
 
             if (!SetThreadContext(hThread, ref context))
                 return false;
@@ -1225,7 +1224,6 @@ namespace EyePatch.Patch
             context.Eax = 0;
             context.Dr6 = 0;
 
-            DisableBreakpoint32(ref context, 0);
 
             bool setContext = _targetIsWow64
                 ? Wow64SetThreadContext(hThread, ref context)
