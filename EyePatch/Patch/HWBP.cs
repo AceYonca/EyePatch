@@ -797,8 +797,8 @@ namespace EyePatch.Patch
 
 
             uint resultAddress = ReadUInt32Remote(
-                hProcess,
-                new IntPtr(unchecked((int)resultSlot)));
+            hProcess,
+            new IntPtr(unchecked((int)resultSlot)));
 
             LogMessage($"x86 ESP=0x{context.Esp:X8}");
             LogMessage($"x86 resultSlot=0x{resultSlot:X8}");
@@ -813,27 +813,13 @@ namespace EyePatch.Patch
             }
             else
             {
-                LogMessage("x86 result pointer rejected.");
-                return false;
+                LogMessage("x86 result pointer invalid/null; skipping write.");
             }
-
-            for (uint i = 0; i < 8; i++)
-            {
-                uint slot = context.Esp + i * 4;
-                uint value = ReadUInt32Remote(hProcess, new IntPtr(unchecked((int)slot)));
-                LogMessage($"x86 [ESP+{i * 4}] = 0x{value:X8}");
-            }
-
-
-
 
             context.Eip = returnAddress;
             context.Esp += 4;
             context.Eax = 0;
             context.Dr6 = 0;
-
-
-
 
 
             bool setContext = _targetIsWow64
