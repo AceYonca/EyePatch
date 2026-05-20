@@ -324,6 +324,8 @@ namespace EyePatch.Patch
             LogMessage($"Setting hardware breakpoint at 0x{AmsiBufferAddress.ToInt64():X}");
             int installed = 0;
 
+
+
             foreach (ProcessThread thread in _targetProcess.Threads)
             {
                 uint threadId = (uint)thread.Id;
@@ -493,7 +495,6 @@ namespace EyePatch.Patch
                     switch ((DebugEventCode)debugEvent.dwDebugEventCode)
                     {
                         case DebugEventCode.CREATE_THREAD_DEBUG_EVENT:
-
                             if (_breakpointAddress != IntPtr.Zero)
                                 PatchThread(debugEvent.dwThreadId);
 
@@ -766,9 +767,7 @@ namespace EyePatch.Patch
         }
 
         private static bool _targetIsWow64;
-
-
-         private static bool HandleBreakpoint32(IntPtr hThread)
+        private static bool HandleBreakpoint32(IntPtr hThread)
         {
             LogMessage("HandleBreakpoint32 entered.");
 
@@ -1152,7 +1151,7 @@ namespace EyePatch.Patch
 THREAD_GET_CONTEXT |
 THREAD_SET_CONTEXT |
 THREAD_SUSPEND_RESUME |
-THREAD_QUERY_INFORMATION ,
+THREAD_QUERY_INFORMATION,
 
 false,
                         threadId);
@@ -1195,13 +1194,7 @@ false,
 
                             if (GetThreadContext32(hThread, ref context))
                             {
-                                context.Dr0 = 0;
-                                context.Dr1 = 0;
-                                context.Dr2 = 0;
-                                context.Dr3 = 0;
-                                context.Dr6 = 0;
-                                context.Dr7 = 0;
-
+                                DisableBreakpoint32(ref context, 0);
                                 SetThreadContext32(hThread, ref context);
                             }
                         }
