@@ -766,7 +766,9 @@ namespace EyePatch.Patch
         }
 
         private static bool _targetIsWow64;
-        private static bool HandleBreakpoint32(IntPtr hThread)
+
+
+         private static bool HandleBreakpoint32(IntPtr hThread)
         {
             LogMessage("HandleBreakpoint32 entered.");
 
@@ -793,8 +795,7 @@ namespace EyePatch.Patch
             if (!IsCanonicalUserAddress32(returnAddress))
                 return false;
 
-            uint resultSlot = context.Esp + 16u;
-
+            uint resultSlot = context.Esp + 24u;
 
             uint resultAddress = ReadUInt32Remote(
             hProcess,
@@ -817,7 +818,7 @@ namespace EyePatch.Patch
             }
 
             context.Eip = returnAddress;
-            context.Esp += 4;
+            context.Esp += 28;
             context.Eax = 0;
             context.Dr6 = 0;
 
