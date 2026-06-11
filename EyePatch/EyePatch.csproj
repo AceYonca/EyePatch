@@ -98,6 +98,7 @@
   <ItemGroup>
     <Compile Include="Patch\HWBP.cs" />
     <Compile Include="Patch\Hooker.cs" />
+    <Compile Include="Patch\Native.cs" />
     <Compile Include="Properties\AssemblyInfo.cs">
       <SubType>Code</SubType>
     </Compile>
